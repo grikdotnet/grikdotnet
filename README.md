@@ -2,8 +2,8 @@
 
 Here are the links to articles, notes and projects of mine.
 
-* [Thoughts on Y Combinator Requests for Startups](Thoughts%20on%20Y%20Combinator%20Requests%20for%20Startups.md)
-* [Xdebug in Docker images of PHP applications](Xdebug%20in%20Docker%20images%20of%20PHP%20applications.md)
+* [Thoughts on Y Combinator Requests for Startups](Thoughts%20on%20Y%20Combinator%20Requests%20for%20Startups.html)
+* [Xdebug in Docker images of PHP applications](Xdebug%20in%20Docker%20images%20of%20PHP%20applications.html)
 
 - - 👯 I’m looking to collaborate on LLM embeddings with RAG implementation for usage in the real business.
 - 📫 How to reach me: 
