@@ -314,9 +314,9 @@
 
         .modal-body .meta {
             color: var(--accent-gold);
-            font-size: 0.9rem;
-            margin-bottom: 50px;
-            padding-bottom: 25px;
+            font-size: 0.78rem;
+            margin-bottom: 36px;
+            padding-bottom: 18px;
             border-bottom: 1px solid var(--glass-border);
             text-transform: uppercase;
             letter-spacing: 0.1em;
@@ -358,7 +358,7 @@
     <div class="container">
         <header>
             <h1>The repository of notes.</h1>
-            <p>Digital craft, and simplicity.</p>
+            <p>Digital craft, business, and complexity of simplicity.</p>
         </header>
 
         <main>
@@ -378,6 +378,7 @@
         </div>
     </div>
 
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <script>
         const MANIFEST_PATH = "./manifest.json";
         const PAGE_SIZE = 10;
@@ -445,25 +446,20 @@
         }
 
         function renderMarkdownToHtml(markdown) {
-            const escaped = escapeHtml(markdown);
-            const lines = escaped.split(/\r?\n/);
-            const blocks = [];
-
-            for (const line of lines) {
-                if (/^###\s+/.test(line)) {
-                    blocks.push(`<h3>${line.replace(/^###\s+/, "")}</h3>`);
-                } else if (/^##\s+/.test(line)) {
-                    blocks.push(`<h2>${line.replace(/^##\s+/, "")}</h2>`);
-                } else if (/^#\s+/.test(line)) {
-                    blocks.push(`<h1>${line.replace(/^#\s+/, "")}</h1>`);
-                } else if (line.trim() === "") {
-                    blocks.push("");
-                } else {
-                    blocks.push(`<p>${line}</p>`);
-                }
+            if (!window.marked) {
+                return `<p>${escapeHtml(markdown)}</p>`;
             }
 
-            return blocks.join("\n");
+            marked.setOptions({
+                gfm: true,
+                breaks: false
+            });
+
+            return marked.parse(markdown);
+        }
+
+        function stripLeadingMarkdownTitle(markdown) {
+            return markdown.replace(/^#\s+.+(?:\r?\n)+/, "");
         }
 
         async function loadManifest() {
@@ -547,9 +543,11 @@
         }
 
         function openModal(article) {
+            const bodyWithoutTopTitle = stripLeadingMarkdownTitle(article.markdown);
             modalBody.innerHTML = `
-                <div class="meta">PUBLISHED ${escapeHtml(article.date.toUpperCase())} • ${escapeHtml(article.key)}</div>
-                ${renderMarkdownToHtml(article.markdown)}
+                <h2>${article.title}</h2>
+                <div class="meta">PUBLISHED ${escapeHtml(article.date.toUpperCase())}</div>
+                ${renderMarkdownToHtml(bodyWithoutTopTitle)}
             `;
             modal.classList.add("active");
             document.body.style.overflow = "hidden";
@@ -564,16 +562,14 @@
             articleGrid.innerHTML = "";
 
             for (const article of articles) {
-                const safeTitle = escapeHtml(article.title);
-                const safeExcerpt = escapeHtml(article.excerpt);
                 const safeDate = escapeHtml(article.date);
                 const card = document.createElement("article");
                 card.className = `panel article-card${article.failed ? " is-unavailable" : ""}`;
                 card.innerHTML = `
                     <div>
                         <div class="article-date">${safeDate}</div>
-                        <h3 class="article-title">${safeTitle}</h3>
-                        <p class="article-excerpt">${safeExcerpt}</p>
+                        <h3 class="article-title">${article.title}</h3>
+                        <p class="article-excerpt">${article.excerpt}</p>
                     </div>
                     <div><span class="read-insight">${article.failed ? "UNAVAILABLE" : "READ INSIGHT →"}</span></div>
                 `;
