@@ -1,4 +1,3 @@
-## Static Markdown Site
 
 This is a static site that shows markdown files.
 The source is on [github](https://github.com/grikdotnet/grikdotnet/tree/main)
