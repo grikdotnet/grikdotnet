@@ -1,0 +1,15 @@
+{
+  "name": "grikdotnet-static-site",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "manifest:build": "node ./scripts/generate-manifest.mjs",
+    "manifest:build:verbose": "node ./scripts/generate-manifest.mjs --verbose",
+    "worker:dev": "wrangler dev ./worker/src/index.ts",
+    "worker:deploy": "wrangler deploy ./worker/src/index.ts"
+  },
+  "devDependencies": {
+    "wrangler": "^4.7.0"
+  }
+}

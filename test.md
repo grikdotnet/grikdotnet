@@ -1,4 +1,2 @@
 ---
-share: true
----
-123456
+share: <i>true&nbsp;</i><div><br></div>
