@@ -378,7 +378,6 @@
                 </div>
         </div>
     </div>
-
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <script>
         const MANIFEST_PATH = "./manifest.json";
@@ -396,9 +395,8 @@
         let totalPages = 1;
         let renderRequestId = 0;
         const articleCache = new Map();
+        let localFolderHandle = null;
 
-        const HTML_ESCAPE_MAP  = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" };
-        const RE_HTML_CHARS    = /[&<>"']/g;
         const RE_MD_EXT        = /\.md$/i;
         const RE_SEPARATORS    = /[_-]+/g;
         const RE_NEWLINE       = /\r?\n/;
@@ -414,10 +412,6 @@
 
         if (window.marked) {
             marked.setOptions({ gfm: true, breaks: false });
-        }
-
-        function escapeHtml(text) {
-            return String(text).replace(RE_HTML_CHARS, (ch) => HTML_ESCAPE_MAP[ch]);
         }
 
         function filenameToTitle(filename) {
@@ -463,7 +457,7 @@
 
         function renderMarkdownToHtml(markdown) {
             if (!window.marked) {
-                return `<p>${escapeHtml(markdown)}</p>`;
+                return `<p>${String(markdown)}</p>`;
             }
 
             return marked.parse(markdown);
@@ -474,6 +468,10 @@
         }
 
         async function loadManifest() {
+            if (localFolderHandle) {
+                const text = await readTextFromFolder(localFolderHandle, "manifest.json");
+                return JSON.parse(text);
+            }
             const response = await fetch(MANIFEST_PATH, { cache: "no-store" });
             if (!response.ok) {
                 throw new Error(`Failed to load manifest: ${response.status}`);
@@ -482,11 +480,87 @@
         }
 
         async function loadMarkdown(key) {
+            if (localFolderHandle) {
+                return readTextFromFolder(localFolderHandle, key);
+            }
             const response = await fetch(`./${encodeURI(key)}`, { cache: "no-store" });
             if (!response.ok) {
                 throw new Error(`Failed to load markdown ${key}: ${response.status}`);
             }
             return response.text();
+        }
+
+        function isLocalFilePage() {
+            return window.location.protocol === "file:";
+        }
+
+        function hasFileSystemAccessApi() {
+            return typeof window.showDirectoryPicker === "function";
+        }
+
+        async function readTextFromFolder(rootHandle, relativePath) {
+            const cleanPath = String(relativePath).replaceAll("\\", "/").replace(/^\.?\//, "");
+            const parts = cleanPath.split("/").filter(Boolean);
+            if (parts.length === 0) {
+                throw new Error("Invalid file path.");
+            }
+
+            let dirHandle = rootHandle;
+            for (let i = 0; i < parts.length - 1; i += 1) {
+                dirHandle = await dirHandle.getDirectoryHandle(parts[i]);
+            }
+
+            const fileHandle = await dirHandle.getFileHandle(parts[parts.length - 1]);
+            const file = await fileHandle.getFile();
+            return file.text();
+        }
+
+        async function openLocalFolderAndReload() {
+            if (!hasFileSystemAccessApi()) {
+                throw new Error("File System Access API is not available in this browser.");
+            }
+
+            localFolderHandle = await window.showDirectoryPicker();
+            articleCache.clear();
+            await bootstrap();
+        }
+
+        function buildWrongFolderMessage(reason) {
+            const base = "Probably you selected a wrong folder. Please select the folder with your site.";
+            if (!reason) {
+                return base;
+            }
+            return `${base}<br><small>${reason}</small>`;
+        }
+
+        function renderLocalFolderPrompt(errorMessage) {
+            articleGrid.innerHTML = "";
+            const card = document.createElement("article");
+            card.className = "panel article-card";
+            card.innerHTML = `
+                <div>
+                    <div class="article-date">Local file mode</div>
+                    <h3 class="article-title">Open site folder</h3>
+                    <p class="article-excerpt">${errorMessage}</p>
+                    <button id="openLocalFolderBtn" class="panel page-btn" type="button">Open Folder</button>
+                </div>
+            `;
+            articleGrid.appendChild(card);
+            pagination.innerHTML = "";
+            pagination.style.display = "none";
+
+            const button = document.getElementById("openLocalFolderBtn");
+            if (!button) {
+                return;
+            }
+            button.addEventListener("click", async () => {
+                try {
+                    await openLocalFolderAndReload();
+                } catch (error) {
+                    const message = error instanceof Error ? error.message : "Failed to open folder.";
+                    renderLocalFolderPrompt(buildWrongFolderMessage(message));
+                }
+            });
         }
 
         function renderError(message) {
@@ -496,8 +570,8 @@
             errorCard.innerHTML = `
                 <div>
                     <div class="article-date">Error</div>
-                    <h3 class="article-title">Unable to load articles</h3>
-                    <p class="article-excerpt">${escapeHtml(message)}</p>
+                    <h3 class="article-title">Use another browser</h3>
+                    <p class="article-excerpt">${message}</p>
                 </div>
             `;
             articleGrid.appendChild(errorCard);
@@ -557,7 +631,7 @@
             const bodyWithoutTopTitle = stripLeadingMarkdownTitle(article.markdown);
             modalBody.innerHTML = `
                 <h2>${article.title}</h2>
-                <div class="meta">PUBLISHED ${escapeHtml(article.date.toUpperCase())}</div>
+                <div class="meta">PUBLISHED ${article.date.toUpperCase()}</div>
                 ${renderMarkdownToHtml(bodyWithoutTopTitle)}
             `;
             modal.classList.add("active");
@@ -573,12 +647,11 @@
             const fragment = document.createDocumentFragment();
 
             for (const article of articles) {
-                const safeDate = escapeHtml(article.date);
                 const card = document.createElement("article");
                 card.className = `panel article-card${article.failed ? " is-unavailable" : ""}`;
                 card.innerHTML = `
                     <div>
-                        <div class="article-date">${safeDate}</div>
+                        <div class="article-date">${article.date}</div>
                         <h3 class="article-title">${article.title}</h3>
                         <p class="article-excerpt">${article.excerpt}</p>
                     </div>
@@ -753,6 +826,13 @@
         }
 
         async function bootstrap() {
+            if (isLocalFilePage() && !hasFileSystemAccessApi()) {
+                renderError("You opened your page from a folder. Please use <b>Chrome</b> or <b>Edge</b>. <br>This browser does not allow to work with local folders.");
+                pagination.innerHTML = "";
+                pagination.style.display = "none";
+                return;
+            }
+
             try {
                 const manifest = await loadManifest();
                 allEntries = Array.isArray(manifest.files) ? manifest.files : [];
@@ -768,7 +848,16 @@
                 const initialPage = Math.min(getPageFromUrl(), totalPages);
                 await renderPage(initialPage, { scroll: false, syncUrl: true, historyMode: "replace" });
             } catch (error) {
-                renderError(error instanceof Error ? error.message : "Unknown error");
+                const message = error instanceof Error ? error.message : "Unknown error";
+                if (isLocalFilePage()) {
+                    if (localFolderHandle) {
+                        renderLocalFolderPrompt(buildWrongFolderMessage(message));
+                    } else {
+                        renderLocalFolderPrompt('Navigate to the folder with your site, and press "Select folder".');
+                    }
+                    return;
+                }
+                renderError(message);
                 pagination.innerHTML = "";
                 pagination.style.display = "none";
             }
