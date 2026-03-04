@@ -103,7 +103,8 @@
         /* Article Grid */
         .article-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+            grid-template-columns: repeat(auto-fit, minmax(320px, 360px));
+            justify-content: center;
             gap: 25px;
             margin-bottom: 80px;
         }
@@ -357,7 +358,7 @@
 
     <div class="container">
         <header>
-            <h1>The repository of notes.</h1>
+            <h1>The repository of notes</h1>
             <p>Digital craft, business, and complexity of simplicity.</p>
         </header>
 
@@ -393,37 +394,52 @@
         let allEntries = [];
         let currentPage = 1;
         let totalPages = 1;
+        let renderRequestId = 0;
         const articleCache = new Map();
 
+        const HTML_ESCAPE_MAP  = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" };
+        const RE_HTML_CHARS    = /[&<>"']/g;
+        const RE_MD_EXT        = /\.md$/i;
+        const RE_SEPARATORS    = /[_-]+/g;
+        const RE_NEWLINE       = /\r?\n/;
+        const RE_ATX_HEADING   = /^#\s+/;
+        const RE_CODE_BLOCK    = /```[\s\S]*?```/g;
+        const RE_INLINE_CODE   = /`([^`]+)`/g;
+        const RE_IMAGE         = /!\[[^\]]*]\([^)]*\)/g;
+        const RE_LINK          = /\[[^\]]*]\([^)]*\)/g;
+        const RE_HEADING_PFX   = /^#{1,6}\s+/gm;
+        const RE_MD_SYMBOLS    = /[*_~>#-]/g;
+        const RE_WHITESPACE    = /\s+/g;
+        const RE_LEADING_TITLE = /^#\s+.+(?:\r?\n)+/;
+
+        if (window.marked) {
+            marked.setOptions({ gfm: true, breaks: false });
+        }
+
         function escapeHtml(text) {
-            return String(text)
-                .replaceAll("&", "&amp;")
-                .replaceAll("<", "&lt;")
-                .replaceAll(">", "&gt;")
-                .replaceAll('"', "&quot;")
-                .replaceAll("'", "&#39;");
+            return String(text).replace(RE_HTML_CHARS, (ch) => HTML_ESCAPE_MAP[ch]);
         }
 
         function filenameToTitle(filename) {
             return filename
-                .replace(/\.md$/i, "")
-                .replace(/[_-]+/g, " ")
+                .replace(RE_MD_EXT, "")
+                .replace(RE_SEPARATORS, " ")
                 .trim();
         }
 
         function extractPreview(markdown) {
-            const lines = markdown.split(/\r?\n/);
-            const heading = lines.find((line) => /^#\s+/.test(line));
-            const title = heading ? heading.replace(/^#\s+/, "").trim() : "";
+            const lines = markdown.split(RE_NEWLINE);
+            const heading = lines.find((line) => RE_ATX_HEADING.test(line));
+            const title = heading ? heading.replace(RE_ATX_HEADING, "").trim() : "";
 
             const plain = markdown
-                .replace(/```[\s\S]*?```/g, " ")
-                .replace(/`([^`]+)`/g, "$1")
-                .replace(/!\[[^\]]*]\([^)]*\)/g, " ")
-                .replace(/\[[^\]]*]\([^)]*\)/g, " ")
-                .replace(/^#{1,6}\s+/gm, "")
-                .replace(/[*_~>#-]/g, " ")
-                .replace(/\s+/g, " ")
+                .replace(RE_CODE_BLOCK,   " ")
+                .replace(RE_INLINE_CODE,  "$1")
+                .replace(RE_IMAGE,        " ")
+                .replace(RE_LINK,         " ")
+                .replace(RE_HEADING_PFX,  "")
+                .replace(RE_MD_SYMBOLS,   " ")
+                .replace(RE_WHITESPACE,   " ")
                 .trim();
 
             return {
@@ -450,16 +466,11 @@
                 return `<p>${escapeHtml(markdown)}</p>`;
             }
 
-            marked.setOptions({
-                gfm: true,
-                breaks: false
-            });
-
             return marked.parse(markdown);
         }
 
         function stripLeadingMarkdownTitle(markdown) {
-            return markdown.replace(/^#\s+.+(?:\r?\n)+/, "");
+            return markdown.replace(RE_LEADING_TITLE, "");
         }
 
         async function loadManifest() {
@@ -559,7 +570,7 @@
         }
 
         function renderCards(articles) {
-            articleGrid.innerHTML = "";
+            const fragment = document.createDocumentFragment();
 
             for (const article of articles) {
                 const safeDate = escapeHtml(article.date);
@@ -578,8 +589,10 @@
                     card.addEventListener("click", () => openModal(article));
                 }
 
-                articleGrid.appendChild(card);
+                fragment.appendChild(card);
             }
+
+            articleGrid.replaceChildren(fragment);
         }
 
         function buildButton(label, className, role, disabled, page) {
@@ -597,32 +610,45 @@
 
         function getVisiblePageTokens(activePage, pageCount) {
             if (pageCount <= MAX_VISIBLE_PAGE_LINKS) {
-                return Array.from({ length: pageCount }, (_, i) => i + 1);
+                const tokens = [];
+                for (let i = 1; i <= pageCount; i++) tokens.push(i);
+                return tokens;
             }
 
-            const innerSlots = Math.max(1, MAX_VISIBLE_PAGE_LINKS - 2);
-            let start = activePage - Math.floor(innerSlots / 2);
-            let end = activePage + Math.floor(innerSlots / 2);
+            const maxLinks = Math.max(7, MAX_VISIBLE_PAGE_LINKS);
+            const edgeSpan = maxLinks - 3;
 
-            if (start < 2) {
-                start = 2;
-                end = start + innerSlots - 1;
-            }
-            if (end > pageCount - 1) {
-                end = pageCount - 1;
-                start = end - innerSlots + 1;
-            }
-
-            const tokens = [1];
-            if (start > 2) {
+            // Near the start: 1 2 3 4 5 ... N
+            if (activePage <= edgeSpan) {
+                const tokens = [1];
+                for (let page = 2; page <= maxLinks - 2; page += 1) {
+                    tokens.push(page);
+                }
                 tokens.push("...");
+                tokens.push(pageCount);
+                return tokens;
             }
+
+            // Near the end: 1 ... N-4 N-3 N-2 N-1 N
+            if (activePage >= pageCount - edgeSpan + 1) {
+                const tokens = [1, "..."];
+                const start = pageCount - (maxLinks - 3);
+                for (let page = start; page <= pageCount - 1; page += 1) {
+                    tokens.push(page);
+                }
+                tokens.push(pageCount);
+                return tokens;
+            }
+
+            // Middle: 1 ... P-1 P P+1 ... N
+            const middleWindow = maxLinks - 4;
+            const start = activePage - Math.floor(middleWindow / 2);
+            const end = start + middleWindow - 1;
+            const tokens = [1, "..."];
             for (let page = start; page <= end; page += 1) {
                 tokens.push(page);
             }
-            if (end < pageCount - 1) {
-                tokens.push("...");
-            }
+            tokens.push("...");
             tokens.push(pageCount);
             return tokens;
         }
@@ -683,14 +709,37 @@
             }
         }
 
+        function renderLoadingState() {
+            const fragment = document.createDocumentFragment();
+            for (let i = 0; i < PAGE_SIZE; i++) {
+                const ph = document.createElement("article");
+                ph.className = "panel article-card";
+                ph.setAttribute("aria-hidden", "true");
+                ph.innerHTML = `
+                    <div>
+                        <div class="article-date" style="color:transparent;background:var(--frosted-base);border-radius:4px;width:6em;">&nbsp;</div>
+                        <h3 class="article-title" style="color:transparent;background:var(--frosted-base);border-radius:4px;">&nbsp;</h3>
+                        <p class="article-excerpt" style="color:transparent;background:var(--frosted-base);border-radius:4px;">&nbsp;</p>
+                    </div>
+                `;
+                fragment.appendChild(ph);
+            }
+            articleGrid.replaceChildren(fragment);
+        }
+
         async function renderPage(page, options = {}) {
             const nextPage = Math.max(1, Math.min(page, totalPages));
             const shouldScroll = options.scroll === true;
             const syncUrl = options.syncUrl !== false;
             const historyMode = options.historyMode || "push";
+            const requestId = ++renderRequestId;
             currentPage = nextPage;
 
+            renderLoadingState();
             const articles = await loadArticlesForPage(currentPage);
+            if (requestId !== renderRequestId) {
+                return;
+            }
             renderCards(articles);
             renderPagination();
 
