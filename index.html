@@ -396,6 +396,9 @@
         let renderRequestId = 0;
         const articleCache = new Map();
         let localFolderHandle = null;
+        let currentArticleKey = "";
+        let isHydratingFromUrl = false;
+        let pendingRouteArticleKey = "";
 
         const RE_MD_EXT        = /\.md$/i;
         const RE_SEPARATORS    = /[_-]+/g;
@@ -577,6 +580,19 @@
             articleGrid.appendChild(errorCard);
         }
 
+        function renderRouteNotice(message) {
+            const notice = document.createElement("article");
+            notice.className = "panel article-card is-unavailable";
+            notice.innerHTML = `
+                <div>
+                    <div class="article-date">Notice</div>
+                    <h3 class="article-title">Article route</h3>
+                    <p class="article-excerpt">${message}</p>
+                </div>
+            `;
+            articleGrid.prepend(notice);
+        }
+
         function buildFallbackArticle(entry, errorMessage) {
             const baseTitle = filenameToTitle(entry.key);
             return {
@@ -627,7 +643,7 @@
             return Promise.all(entries.map((entry) => loadArticle(entry)));
         }
 
-        function openModal(article) {
+        function openModal(article, options = {}) {
             const bodyWithoutTopTitle = stripLeadingMarkdownTitle(article.markdown);
             modalBody.innerHTML = `
                 <h2>${article.title}</h2>
@@ -636,11 +652,26 @@
             `;
             modal.classList.add("active");
             document.body.style.overflow = "hidden";
+            currentArticleKey = article.key;
+
+            if (options.syncUrl !== false && !isHydratingFromUrl) {
+                writeUrlState(
+                    { page: currentPage, article: currentArticleKey },
+                    options.historyMode || "push"
+                );
+            }
         }
 
-        function close() {
+        function close(options = {}) {
             modal.classList.remove("active");
             document.body.style.overflow = "auto";
+            currentArticleKey = "";
+
+            const syncUrl = options.syncUrl !== false;
+            const historyMode = options.historyMode || "push";
+            if (syncUrl && !isHydratingFromUrl) {
+                writeUrlState({ page: currentPage, article: "" }, historyMode);
+            }
         }
 
         function renderCards(articles) {
@@ -659,7 +690,7 @@
                 `;
 
                 if (!article.failed) {
-                    card.addEventListener("click", () => openModal(article));
+                    card.addEventListener("click", () => openModal(article, { syncUrl: true, historyMode: "push" }));
                 }
 
                 fragment.appendChild(card);
@@ -767,19 +798,85 @@
             return raw;
         }
 
-        function writePageToUrl(page, mode = "push") {
-            const url = new URL(window.location.href);
-            if (page <= 1) {
-                url.searchParams.delete("page");
-            } else {
-                url.searchParams.set("page", String(page));
+        function articleTokenFromKey(key) {
+            return String(key)
+                .replace(RE_MD_EXT, "")
+                .replace(/[\s_]+/g, "-")
+                .replace(/-+/g, "-")
+                .trim();
+        }
+
+        function getArticleTokenFromUrl() {
+            const rawSearch = window.location.search.replace(/^\?/, "");
+            if (!rawSearch) {
+                return "";
             }
 
-            if (mode === "replace") {
-                window.history.replaceState({ page }, "", url);
-            } else {
-                window.history.pushState({ page }, "", url);
+            const parts = rawSearch.split("&").filter(Boolean);
+            for (const part of parts) {
+                const [rawKey, rawValue = ""] = part.split("=");
+                const key = decodeURIComponent(rawKey || "").trim();
+                const value = decodeURIComponent(rawValue || "").trim();
+
+                // Backward compatibility for old links: ?article=Token
+                if (key === "article" && value) {
+                    return value;
+                }
+
+                // New format: ?Token (bare query key)
+                if (key && key !== "page" && rawValue === "") {
+                    return key;
+                }
             }
+
+            return "";
+        }
+
+        function resolveArticleKeyFromToken(token) {
+            if (!token) {
+                return "";
+            }
+            const normalized = token.toLowerCase();
+            const match = allEntries.find((entry) => articleTokenFromKey(entry.key).toLowerCase() === normalized);
+            return match ? match.key : "";
+        }
+
+        function writeUrlState({ page, article }, mode = "push") {
+            const url = new URL(window.location.href);
+            const searchParts = [];
+
+            if (article && article.trim() !== "") {
+                const token = articleTokenFromKey(article);
+                if (token) {
+                    searchParts.push(encodeURIComponent(token));
+                }
+            }
+
+            if (page > 1) {
+                searchParts.push(`page=${encodeURIComponent(String(page))}`);
+            }
+
+            url.search = searchParts.length > 0 ? `?${searchParts.join("&")}` : "";
+
+            if (mode === "replace") {
+                window.history.replaceState({ page, article: article || "" }, "", url);
+            } else {
+                window.history.pushState({ page, article: article || "" }, "", url);
+            }
+        }
+
+        function findArticleIndexByKey(key) {
+            if (!key) {
+                return -1;
+            }
+            return allEntries.findIndex((entry) => entry.key === key);
+        }
+
+        function pageForArticleIndex(index) {
+            if (index < 0) {
+                return 1;
+            }
+            return Math.floor(index / PAGE_SIZE) + 1;
         }
 
         function renderLoadingState() {
@@ -817,7 +914,19 @@
             renderPagination();
 
             if (syncUrl) {
-                writePageToUrl(currentPage, historyMode);
+                writeUrlState(
+                    { page: currentPage, article: currentArticleKey },
+                    historyMode
+                );
+            }
+
+            if (pendingRouteArticleKey) {
+                const match = articles.find((article) => article.key === pendingRouteArticleKey && !article.failed);
+                if (match) {
+                    const mode = isHydratingFromUrl ? "replace" : "push";
+                    openModal(match, { syncUrl: true, historyMode: mode });
+                    pendingRouteArticleKey = "";
+                }
             }
 
             if (shouldScroll) {
@@ -845,8 +954,33 @@
                     return;
                 }
 
-                const initialPage = Math.min(getPageFromUrl(), totalPages);
-                await renderPage(initialPage, { scroll: false, syncUrl: true, historyMode: "replace" });
+                const requestedPage = getPageFromUrl();
+                const requestedArticleToken = getArticleTokenFromUrl();
+                const requestedArticleKey = resolveArticleKeyFromToken(requestedArticleToken);
+                const clampedRequestedPage = Math.min(Math.max(1, requestedPage), totalPages);
+
+                let routePage = clampedRequestedPage;
+                let routeArticle = requestedArticleKey;
+
+                if (requestedArticleToken) {
+                    const articleIndex = findArticleIndexByKey(requestedArticleKey);
+                    if (articleIndex >= 0) {
+                        routePage = pageForArticleIndex(articleIndex);
+                        pendingRouteArticleKey = requestedArticleKey;
+                    } else {
+                        routeArticle = "";
+                    }
+                }
+
+                isHydratingFromUrl = true;
+                await renderPage(routePage, { scroll: false, syncUrl: false });
+
+                if (requestedArticleToken && !routeArticle) {
+                    renderRouteNotice(`Article not found in manifest: ${requestedArticleToken}`);
+                }
+
+                writeUrlState({ page: routePage, article: routeArticle }, "replace");
+                isHydratingFromUrl = false;
             } catch (error) {
                 const message = error instanceof Error ? error.message : "Unknown error";
                 if (isLocalFilePage()) {
@@ -893,8 +1027,23 @@
                 return;
             }
 
-            const pageFromUrl = Math.min(getPageFromUrl(), totalPages);
-            await renderPage(pageFromUrl, { scroll: false, syncUrl: false });
+            const pageFromUrl = Math.min(Math.max(1, getPageFromUrl()), totalPages);
+            const articleTokenFromUrl = getArticleTokenFromUrl();
+            const articleKeyFromUrl = resolveArticleKeyFromToken(articleTokenFromUrl);
+            const articleIndex = findArticleIndexByKey(articleKeyFromUrl);
+            const routePage = articleIndex >= 0 ? pageForArticleIndex(articleIndex) : pageFromUrl;
+
+            isHydratingFromUrl = true;
+            pendingRouteArticleKey = articleIndex >= 0 ? articleKeyFromUrl : "";
+            await renderPage(routePage, { scroll: false, syncUrl: false });
+
+            if (!articleTokenFromUrl) {
+                close({ syncUrl: false });
+            } else if (articleIndex < 0) {
+                close({ syncUrl: false });
+                renderRouteNotice(`Article not found in manifest: ${articleTokenFromUrl}`);
+            }
+            isHydratingFromUrl = false;
         });
 
         closeModal.addEventListener("click", close);
