@@ -38,8 +38,12 @@ npm install
 
 What it does:
 - Runs `scripts/generate-manifest.mjs`
-- Uploads `*.html`, `*.md`, `manifest.json` to the bucket
-- Uses `--delete` so removed files are removed from bucket
+- Manifest includes per-markdown `hash` (`sha256`)
+- Compares with remote `manifest.json` and skips unchanged markdown files
+- Uploads `index.html` and `manifest.json` only when remote hash differs
+- For exact files (`favicon.svg`, `favicon.ico`), uploads only if missing remotely
+- Ignores `README.md`
+- Deletes stale remote managed files
 
 ### Cloudflare bucket and redirect setup
 

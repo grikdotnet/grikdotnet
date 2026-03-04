@@ -1,9 +1,12 @@
 import { spawn } from "node:child_process";
+import { createHash } from "node:crypto";
 import { readFile, readdir, stat } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   DeleteObjectsCommand,
+  GetObjectCommand,
+  HeadObjectCommand,
   ListObjectsV2Command,
   PutObjectCommand,
   S3Client
@@ -13,7 +16,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const ROOT_DIR = path.resolve(__dirname, "..");
 
-const EXACT_FILES = new Set(["manifest.json"]);
+const EXACT_FILES = new Set(["favicon.svg", "favicon.ico"]);
 
 function loadDotEnv(content) {
   const lines = content.split(/\r?\n/);
@@ -71,7 +74,10 @@ function requireValue(name, value) {
 
 function isManagedFilename(name) {
   const lower = name.toLowerCase();
-  return EXACT_FILES.has(name) || lower.endsWith(".html") || lower.endsWith(".md");
+  if (lower === "readme.md") {
+    return false;
+  }
+  return name === "manifest.json" || EXACT_FILES.has(name) || lower.endsWith(".html") || lower.endsWith(".md");
 }
 
 function inferFromS3Url(urlString) {
@@ -128,10 +134,32 @@ async function listLocalManagedFiles() {
   return files;
 }
 
+function sha256Hex(buffer) {
+  return createHash("sha256").update(buffer).digest("hex");
+}
+
+async function readLocalFileInfo(key) {
+  const fullPath = path.join(ROOT_DIR, key);
+  const body = await readFile(fullPath);
+  const info = await stat(fullPath);
+  return {
+    key,
+    body,
+    size: info.size,
+    sha256: sha256Hex(body)
+  };
+}
+
 function contentTypeFor(filename) {
   const lower = filename.toLowerCase();
   if (lower.endsWith(".html")) {
     return "text/html; charset=utf-8";
+  }
+  if (lower.endsWith(".svg")) {
+    return "image/svg+xml";
+  }
+  if (lower.endsWith(".ico")) {
+    return "image/x-icon";
   }
   if (lower.endsWith(".md")) {
     return "text/markdown; charset=utf-8";
@@ -145,20 +173,101 @@ function contentTypeFor(filename) {
   return "application/octet-stream";
 }
 
-async function uploadFiles(client, bucket, keys) {
-  for (const key of keys) {
-    const fullPath = path.join(ROOT_DIR, key);
-    const body = await readFile(fullPath);
-    const info = await stat(fullPath);
-    console.log(`Uploading ${key} (${info.size} bytes)...`);
+async function uploadFiles(client, bucket, files) {
+  for (const file of files) {
+    console.log(`Uploading ${file.key} (${file.size} bytes)...`);
     await client.send(
       new PutObjectCommand({
         Bucket: bucket,
-        Key: key,
-        Body: body,
-        ContentType: contentTypeFor(key)
+        Key: file.key,
+        Body: file.body,
+        ContentType: contentTypeFor(file.key),
+        Metadata: {
+          sha256: file.sha256
+        }
       })
     );
+  }
+}
+
+async function loadRemoteManifest(client, bucket) {
+  try {
+    const response = await client.send(
+      new GetObjectCommand({
+        Bucket: bucket,
+        Key: "manifest.json"
+      })
+    );
+    const text = await response.Body?.transformToString();
+    if (!text) {
+      return null;
+    }
+    return JSON.parse(text);
+  } catch (error) {
+    const status = Number(error?.$metadata?.httpStatusCode || 0);
+    const code = String(error?.name || "");
+    if (status === 404 || code === "NotFound" || code === "NoSuchKey") {
+      return null;
+    }
+    throw error;
+  }
+}
+
+function manifestHashLookup(manifest) {
+  const map = new Map();
+  if (!manifest || !Array.isArray(manifest.files)) {
+    return map;
+  }
+
+  for (const file of manifest.files) {
+    const key = typeof file?.key === "string" ? file.key : "";
+    const hash = typeof file?.hash === "string" ? file.hash.toLowerCase() : "";
+    if (!key || !hash) {
+      continue;
+    }
+    map.set(key, hash);
+  }
+
+  return map;
+}
+
+async function remoteObjectExists(client, bucket, key) {
+  try {
+    await client.send(
+      new HeadObjectCommand({
+        Bucket: bucket,
+        Key: key
+      })
+    );
+    return true;
+  } catch (error) {
+    const status = Number(error?.$metadata?.httpStatusCode || 0);
+    const code = String(error?.name || "");
+    if (status === 404 || code === "NotFound" || code === "NoSuchKey") {
+      return false;
+    }
+    throw error;
+  }
+}
+
+async function hasSameRemoteHashAndSize(client, bucket, file) {
+  try {
+    const head = await client.send(
+      new HeadObjectCommand({
+        Bucket: bucket,
+        Key: file.key
+      })
+    );
+    const remoteSize = Number(head.ContentLength || 0);
+    const remoteHash = String(head.Metadata?.sha256 || "").toLowerCase();
+    return remoteSize === file.size && remoteHash === file.sha256.toLowerCase();
+  } catch (error) {
+    const status = Number(error?.$metadata?.httpStatusCode || 0);
+    const code = String(error?.name || "");
+    if (status === 404 || code === "NotFound" || code === "NoSuchKey") {
+      return false;
+    }
+    throw error;
   }
 }
 
@@ -249,7 +358,45 @@ async function main() {
     }
   });
 
-  await uploadFiles(client, bucket, localFiles);
+  const filesToUpload = [];
+  let skippedCount = 0;
+  const remoteManifest = await loadRemoteManifest(client, bucket);
+  const remoteManifestHashes = manifestHashLookup(remoteManifest);
+
+  for (const key of localFiles) {
+    if (EXACT_FILES.has(key)) {
+      const existsRemotely = await remoteObjectExists(client, bucket, key);
+      if (existsRemotely) {
+        skippedCount += 1;
+        console.log(`Skipping existing ${key} (remote object exists)`);
+        continue;
+      }
+      const local = await readLocalFileInfo(key);
+      filesToUpload.push(local);
+      continue;
+    }
+
+    const local = await readLocalFileInfo(key);
+    const remoteHash = remoteManifestHashes.get(local.key);
+    if (remoteHash && remoteHash === local.sha256.toLowerCase()) {
+      skippedCount += 1;
+      console.log(`Skipping unchanged ${key} (remote manifest hash match)`);
+      continue;
+    }
+
+    if (local.key.toLowerCase() === "index.html" || local.key === "manifest.json") {
+      const unchangedByHead = await hasSameRemoteHashAndSize(client, bucket, local);
+      if (unchangedByHead) {
+        skippedCount += 1;
+        console.log(`Skipping unchanged ${key} (remote object hash match)`);
+        continue;
+      }
+    }
+
+    filesToUpload.push(local);
+  }
+
+  await uploadFiles(client, bucket, filesToUpload);
 
   const remoteKeys = await listRemoteManagedKeys(client, bucket);
   const localKeySet = new Set(localFiles);
@@ -258,7 +405,7 @@ async function main() {
   await deleteKeys(client, bucket, staleKeys);
 
   console.log(
-    `Deploy complete. Uploaded: ${localFiles.length}, deleted: ${staleKeys.length}, current managed objects: ${localFiles.length}`
+    `Deploy complete. Uploaded: ${filesToUpload.length}, skipped: ${skippedCount}, deleted: ${staleKeys.length}, current managed objects: ${localFiles.length}`
   );
 }
 

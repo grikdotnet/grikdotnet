@@ -1,4 +1,5 @@
-import { readdir, stat, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { readFile, readdir, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 const ROOT_DIR = process.cwd();
@@ -22,12 +23,15 @@ async function collectMarkdownFiles() {
   const detailed = await Promise.all(
     files.map(async (entry) => {
       const fullPath = path.join(ROOT_DIR, entry.name);
+      const body = await readFile(fullPath);
       const info = await stat(fullPath);
+      const hash = createHash("sha256").update(body).digest("hex");
 
       return {
         key: entry.name,
         size: info.size,
-        lastModified: info.mtime.toISOString()
+        lastModified: info.mtime.toISOString(),
+        hash
       };
     })
   );
@@ -41,8 +45,12 @@ async function collectMarkdownFiles() {
 
 async function main() {
   const files = await collectMarkdownFiles();
+  const latestFileModified =
+    files.length > 0
+      ? files.reduce((latest, file) => (file.lastModified > latest ? file.lastModified : latest), files[0].lastModified)
+      : null;
   const manifest = {
-    generatedAt: new Date().toISOString(),
+    generatedAt: latestFileModified ?? "1970-01-01T00:00:00.000Z",
     total: files.length,
     files
   };

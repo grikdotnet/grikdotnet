@@ -3,6 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=1">
+    <link rel="icon" type="image/x-icon" href="/favicon.ico?v=1">
     <title>Article depot</title>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700&family=Poppins:wght@300;400;500;600&display=swap');
@@ -122,7 +124,6 @@
 
         /* The 'Material' hover interaction: Shadow elevation + light reflection */
         .article-card:hover {
-            transform: translateY(-8px);
             box-shadow: var(--shadow-300);
             background-color: #F6EFE3; /* Keeps warm tone while elevating */
             border-color: rgba(179, 142, 97, 0.2);
@@ -331,6 +332,17 @@
             font-weight: 300;
         }
 
+        .modal-body ul,
+        .modal-body ol {
+            margin: 0 0 28px;
+            padding-left: 1.25rem;
+        }
+
+        .modal-body li {
+            line-height: 1.8;
+            margin-bottom: 10px;
+        }
+
         /* Custom Scrollbar for Modal - Precision line */
         .modal-content::-webkit-scrollbar {
             width: 6px;
@@ -348,7 +360,29 @@
 
         @media (max-width: 768px) {
             header h1 { font-size: 2.8rem; }
-            .modal-content { padding: 40px; }
+            .pagination {
+                gap: 8px;
+                flex-wrap: wrap;
+                justify-content: center;
+                padding: 0 8px;
+            }
+            .page-btn, .page-num {
+                padding: 9px 12px;
+                font-size: 0.92rem;
+            }
+            .page-ellipsis {
+                padding: 9px 4px;
+            }
+            .modal-content {
+                width: 100%;
+                max-width: 100%;
+                max-height: 100vh;
+                height: 100vh;
+                padding: 24px 18px 28px;
+                border-radius: 0;
+                border-left: 0;
+                border-right: 0;
+            }
             .modal-body h2 { font-size: 2.2rem; }
             .container { padding: 60px 15px; }
         }
@@ -359,7 +393,7 @@
     <div class="container">
         <header>
             <h1>The repository of notes</h1>
-            <p>Digital craft, business, and complexity of simplicity.</p>
+            <p>Digital craft, business, and complexity of convenince.</p>
         </header>
 
         <main>
@@ -399,6 +433,9 @@
         let currentArticleKey = "";
         let isHydratingFromUrl = false;
         let pendingRouteArticleKey = "";
+        let localWatcher = null;
+        let localWatcherLoadPromise = null;
+        let localRefreshTimer = null;
 
         const RE_MD_EXT        = /\.md$/i;
         const RE_SEPARATORS    = /[_-]+/g;
@@ -501,6 +538,58 @@
             return typeof window.showDirectoryPicker === "function";
         }
 
+        function isLocalWatcherApiReady() {
+            return Boolean(window.LocalFileLive && typeof window.LocalFileLive.createWatcher === "function");
+        }
+
+        async function ensureLocalWatcherScriptLoaded() {
+            if (!isLocalFilePage()) {
+                return null;
+            }
+            if (isLocalWatcherApiReady()) {
+                return window.LocalFileLive;
+            }
+            if (localWatcherLoadPromise) {
+                return localWatcherLoadPromise;
+            }
+
+            localWatcherLoadPromise = new Promise((resolve, reject) => {
+                const script = document.createElement("script");
+                script.src = "./local-file-live.js";
+                script.async = true;
+                script.onload = () => {
+                    if (isLocalWatcherApiReady()) {
+                        resolve(window.LocalFileLive);
+                    } else {
+                        reject(new Error("local-file-live.js loaded, but LocalFileLive API is missing."));
+                    }
+                };
+                script.onerror = () => reject(new Error("Failed to load local-file-live.js"));
+                document.head.appendChild(script);
+            });
+
+            return localWatcherLoadPromise;
+        }
+
+        function stopLocalWatcher() {
+            if (!localWatcher) {
+                return;
+            }
+            localWatcher.stop();
+            localWatcher = null;
+        }
+
+        function scheduleLocalRefresh() {
+            if (localRefreshTimer) {
+                return;
+            }
+            localRefreshTimer = setTimeout(async () => {
+                localRefreshTimer = null;
+                articleCache.clear();
+                await bootstrap();
+            }, 250);
+        }
+
         async function readTextFromFolder(rootHandle, relativePath) {
             const cleanPath = String(relativePath).replaceAll("\\", "/").replace(/^\.?\//, "");
             const parts = cleanPath.split("/").filter(Boolean);
@@ -523,7 +612,23 @@
                 throw new Error("File System Access API is not available in this browser.");
             }
 
+            stopLocalWatcher();
             localFolderHandle = await window.showDirectoryPicker();
+            const liveApi = await ensureLocalWatcherScriptLoaded();
+            if (liveApi) {
+                localWatcher = liveApi.createWatcher({
+                    dirHandle: localFolderHandle,
+                    pollIntervalMs: 1500,
+                    onListChanged: () => scheduleLocalRefresh(),
+                    onContentChanged: () => scheduleLocalRefresh(),
+                    onError: (error) => {
+                        console.warn("Local watcher error:", error);
+                    }
+                });
+
+                await localWatcher.rebuildNow();
+                localWatcher.start();
+            }
             articleCache.clear();
             await bootstrap();
         }
