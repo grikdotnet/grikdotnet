@@ -436,6 +436,10 @@
         let localWatcher = null;
         let localWatcherLoadPromise = null;
         let localRefreshTimer = null;
+        let pendingLocalManifest = null;
+        let pendingLocalFiles = null;
+        const pendingChangedKeys = new Set();
+        let localRefreshInFlight = false;
 
         const RE_MD_EXT        = /\.md$/i;
         const RE_SEPARATORS    = /[_-]+/g;
@@ -579,15 +583,138 @@
             localWatcher = null;
         }
 
-        function scheduleLocalRefresh() {
+        function scheduleLocalRefresh(event = null) {
+            if (event && typeof event === "object") {
+                if (Array.isArray(event.files)) {
+                    pendingLocalFiles = event.files;
+                }
+
+                if (event.type === "list" && event.manifest && Array.isArray(event.manifest.files)) {
+                    pendingLocalManifest = event.manifest;
+                }
+
+                if (event.type === "content" && Array.isArray(event.changedKeys)) {
+                    for (const key of event.changedKeys) {
+                        if (typeof key === "string" && key.trim() !== "") {
+                            pendingChangedKeys.add(key);
+                        }
+                    }
+                }
+            }
+
             if (localRefreshTimer) {
                 return;
             }
             localRefreshTimer = setTimeout(async () => {
                 localRefreshTimer = null;
-                articleCache.clear();
-                await bootstrap();
-            }, 250);
+                await refreshAfterLocalChange();
+            }, 80);
+        }
+
+        async function refreshAfterLocalChange() {
+            if (localRefreshInFlight) {
+                return;
+            }
+            localRefreshInFlight = true;
+            try {
+                const modalWasOpen = modal.classList.contains("active") && Boolean(currentArticleKey);
+                const modalArticleKey = currentArticleKey;
+                const modalContent = modal.querySelector(".modal-content");
+                const previousModalScrollTop = modalContent ? modalContent.scrollTop : 0;
+                const previousPage = currentPage;
+                const manifestSnapshot = pendingLocalManifest;
+                const listChanged = Boolean(manifestSnapshot);
+                const changedKeys = Array.from(pendingChangedKeys);
+                const filesSnapshot = Array.isArray(pendingLocalFiles) ? pendingLocalFiles : null;
+
+                pendingLocalManifest = null;
+                pendingLocalFiles = null;
+                pendingChangedKeys.clear();
+
+                if (listChanged) {
+                    articleCache.clear();
+                    allEntries = manifestSnapshot && Array.isArray(manifestSnapshot.files)
+                        ? manifestSnapshot.files
+                        : [];
+                } else {
+                    for (const key of changedKeys) {
+                        articleCache.delete(key);
+                    }
+                    if (filesSnapshot) {
+                        allEntries = filesSnapshot;
+                    }
+                }
+
+                totalPages = Math.max(1, Math.ceil(allEntries.length / PAGE_SIZE));
+
+                if (allEntries.length === 0) {
+                    close({ syncUrl: false });
+                    renderError("No markdown files were found in manifest.json.");
+                    renderPagination();
+                    writeUrlState({ page: 1, article: "" }, "replace");
+                    return;
+                }
+
+                let nextPage = Math.min(Math.max(1, previousPage), totalPages);
+                if (modalWasOpen && modalArticleKey) {
+                    const modalArticleIndex = findArticleIndexByKey(modalArticleKey);
+                    if (modalArticleIndex >= 0) {
+                        nextPage = pageForArticleIndex(modalArticleIndex);
+                    }
+                }
+
+                pendingRouteArticleKey = "";
+                const currentPageKeys = new Set(getEntriesForPage(nextPage).map((entry) => entry.key));
+                const shouldRenderPage =
+                    listChanged ||
+                    changedKeys.some((key) => currentPageKeys.has(key)) ||
+                    (filesSnapshot && nextPage !== previousPage);
+
+                if (shouldRenderPage) {
+                    await renderPage(nextPage, { scroll: false, syncUrl: false, showLoading: listChanged });
+                } else {
+                    currentPage = nextPage;
+                    renderPagination();
+                }
+
+                if (modalWasOpen && modalArticleKey) {
+                    const shouldRefreshModal = listChanged || changedKeys.includes(modalArticleKey);
+                    if (shouldRefreshModal) {
+                        const modalArticleEntry = allEntries.find((entry) => entry.key === modalArticleKey);
+                        if (modalArticleEntry) {
+                            const refreshedArticle = await loadArticle(modalArticleEntry);
+                            if (!refreshedArticle.failed) {
+                                openModal(refreshedArticle, { syncUrl: false });
+                                const refreshedModalContent = modal.querySelector(".modal-content");
+                                if (refreshedModalContent) {
+                                    refreshedModalContent.scrollTop = previousModalScrollTop;
+                                }
+                            } else {
+                                close({ syncUrl: false });
+                                renderRouteNotice(`Article became unavailable: ${articleTokenFromKey(modalArticleKey)}`);
+                            }
+                        } else {
+                            close({ syncUrl: false });
+                            renderRouteNotice(`Article no longer exists: ${articleTokenFromKey(modalArticleKey)}`);
+                        }
+                    }
+                }
+
+                writeUrlState(
+                    {
+                        page: currentPage,
+                        article: modal.classList.contains("active") ? currentArticleKey : ""
+                    },
+                    "replace"
+                );
+            } catch (error) {
+                console.warn("Failed to refresh live local changes:", error);
+            } finally {
+                localRefreshInFlight = false;
+                if (pendingLocalManifest || pendingLocalFiles || pendingChangedKeys.size > 0) {
+                    scheduleLocalRefresh();
+                }
+            }
         }
 
         async function readTextFromFolder(rootHandle, relativePath) {
@@ -618,9 +745,9 @@
             if (liveApi) {
                 localWatcher = liveApi.createWatcher({
                     dirHandle: localFolderHandle,
-                    pollIntervalMs: 1500,
-                    onListChanged: () => scheduleLocalRefresh(),
-                    onContentChanged: () => scheduleLocalRefresh(),
+                    pollIntervalMs: 400,
+                    onListChanged: (event) => scheduleLocalRefresh(event),
+                    onContentChanged: (event) => scheduleLocalRefresh(event),
                     onError: (error) => {
                         console.warn("Local watcher error:", error);
                     }
@@ -678,7 +805,7 @@
             errorCard.innerHTML = `
                 <div>
                     <div class="article-date">Error</div>
-                    <h3 class="article-title">Use another browser</h3>
+                    <h3 class="article-title">Use a different browser</h3>
                     <p class="article-excerpt">${message}</p>
                 </div>
             `;
@@ -1007,10 +1134,13 @@
             const shouldScroll = options.scroll === true;
             const syncUrl = options.syncUrl !== false;
             const historyMode = options.historyMode || "push";
+            const showLoading = options.showLoading !== false;
             const requestId = ++renderRequestId;
             currentPage = nextPage;
 
-            renderLoadingState();
+            if (showLoading) {
+                renderLoadingState();
+            }
             const articles = await loadArticlesForPage(currentPage);
             if (requestId !== renderRequestId) {
                 return;

@@ -1,57 +1,67 @@
+This is a static site that displays Markdown files.
+The source code is available on GitHub:
+https://github.com/grikdotnet/grikdotnet/tree/main
 
-This is a static site that shows markdown files.
-The source is on [github](https://github.com/grikdotnet/grikdotnet/tree/main)
+It works like a lightweight alternative to Obsidian:
 
-### Any free hosting
+* instant preview as you type
+* links work when you publish files to web sites
+* no dedicated application needed
 
-Works from any free hosting and locally without a web server:
+Publish your pages with a mouse click for free.
+
+### Free hosting
+
+No web server, no TLS certificates, no CMS.
+
+Works on any static hosting provider and locally without a web server:
+
+* Cloudflare
 * Github pages
 * Vercel
-* Cloudflare
 * Google cloud
-* Any provider
-* On your computer - just click `index.html`
-
-No web server, no TLS certificates, no CMS to set up.
-
-### Edit your pages in any text editor
-
-Edit pages in a notepad, or your favorite text editor. They all support markdown.
-Click `index.html`, and see how the page looks on your site.
-Publish updates to Cloudflare with a click on `deploy-r2.cmd`.
+* Any static hosting provider
+* Your local machine — just open index.html
 
 
-### How to make it work
+### Edit Pages in Any Text Editor
 
-Create a local `.env` file (never commit it) based on `.env.example`.
+Edit your pages in Notepad or any text editor. All modern editors support Markdown.
+
+Open index.html locally to preview your pages instantly while writing — no web server, no build step, no additional software required.
+
+
+### Setup
+
+Create a local `.env` file based on `.env.example` (never commit it).
 
 Install dependencies once:
 
-```powershell
+```
 npm install
 ```
 
-### Publish flow
+### Editing pages
 
-1. Edit or add local markdown files.
-2. To deploy changes click `deploy-r2.cmd` or run in a terminal.
+1. Edit or add local Markdown files.
+2. Deploy changes to Clouflare by running deploy-r2.cmd or executing `npm run deploy:r2` in a terminal.
 
-What it does:
-- Runs `scripts/generate-manifest.mjs`
-- Manifest includes per-markdown `hash` (`sha256`)
-- Compares with remote `manifest.json` and skips unchanged markdown files
-- Uploads `index.html` and `manifest.json` only when remote hash differs
+### What the deploy script does:
+
+- Generates a per-file sha256 hash to skip uploading unchanged Markdown files
 - For exact files (`favicon.svg`, `favicon.ico`), uploads only if missing remotely
-- Ignores `README.md`
-- Deletes stale remote managed files
+- Uploads changed files
+- Deletes stale files from the remote bucket
 
-### Cloudflare bucket and redirect setup
+### Cloudflare Bucket and Redirect Setup
+
+There is a script to assist setting up a Cloudflare Bucket for your site.
 
 The script `scripts/bootstrap-cloudflare.mjs` can configure:
-- R2 bucket creation (if missing)
-- R2 custom domain attachment for `SITE_WWW_DOMAIN`
-- Redirect rule from `SITE_APEX_DOMAIN` -> `SITE_WWW_DOMAIN` (if apex is provided)
-- Transform rewrite rule for `https://SITE_WWW_DOMAIN/` -> `/index.html`
+- Create R2 bucket
+- Attach your domain to the bucket
+- Set a redirect rule from the Top-Level Domain to www subdomain
+- Configure it to serve index.html when accessing the site root
 
 Required `.env` values:
 - `CF_API_TOKEN`
