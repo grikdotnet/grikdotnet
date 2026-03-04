@@ -6,10 +6,12 @@
   "scripts": {
     "manifest:build": "node ./scripts/generate-manifest.mjs",
     "manifest:build:verbose": "node ./scripts/generate-manifest.mjs --verbose",
-    "worker:dev": "wrangler dev ./worker/src/index.ts",
-    "worker:deploy": "wrangler deploy ./worker/src/index.ts"
+    "deploy:r2": "node ./scripts/deploy-r2.mjs",
+    "bootstrap:cf": "node ./scripts/bootstrap-cloudflare.mjs",
+    "bootstrap:cf:dry-run": "node ./scripts/bootstrap-cloudflare.mjs --dry-run"
   },
-  "devDependencies": {
-    "wrangler": "^4.7.0"
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.883.0"
   }
 }
+
