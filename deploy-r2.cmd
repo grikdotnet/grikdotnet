@@ -9,11 +9,9 @@ set "EXITCODE=%ERRORLEVEL%"
 if not "%EXITCODE%"=="0" (
   echo.
   echo Deploy failed with exit code %EXITCODE%.
-  pause
   exit /b %EXITCODE%
 )
 
 echo.
 echo Deploy completed successfully.
-pause
 

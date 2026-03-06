@@ -4,11 +4,12 @@ https://github.com/grikdotnet/grikdotnet/tree/main
 
 It works like a lightweight alternative to Obsidian:
 
-* instant preview as you type
-* links work when you publish files to web sites
+* one HTML file, and text files for pages
 * no dedicated application needed
+* links work locally and on a web site
+* instant preview as you type
 
-Publish your pages with a mouse click for free.
+Publish with a mouse click for free.
 
 ### Free hosting
 

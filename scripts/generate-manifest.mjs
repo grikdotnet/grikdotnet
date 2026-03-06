@@ -30,7 +30,7 @@ async function collectMarkdownFiles() {
       return {
         key: entry.name,
         size: info.size,
-        lastModified: info.mtime.toISOString(),
+        lastModified: info.birthtime.toISOString(),
         hash
       };
     })
