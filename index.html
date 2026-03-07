@@ -5,7 +5,34 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=1">
     <link rel="icon" type="image/x-icon" href="/favicon.ico?v=1">
-    <title>Article depot</title>
+    <title>The Repository of Notes</title>
+
+    <meta name="description" content="Digital craft, business, and the complexity of convenience — a repository of notes by Andrey Grikevich.">
+    <link rel="canonical" href="https://www.grik.net/" id="canonicalUrl">
+
+    <meta property="og:type" content="website">
+    <meta property="og:site_name" content="The Repository of Notes">
+    <meta property="og:title" content="The Repository of Notes" id="ogTitle">
+    <meta property="og:description" content="Digital craft, business, and the complexity of convenience — a repository of notes by Andrey Grikevich." id="ogDescription">
+    <meta property="og:url" content="https://www.grik.net/" id="ogUrl">
+
+    <meta name="twitter:card" content="summary">
+    <meta name="twitter:title" content="The Repository of Notes" id="twitterTitle">
+    <meta name="twitter:description" content="Digital craft, business, and the complexity of convenience — a repository of notes by Andrey Grikevich." id="twitterDescription">
+
+    <link rel="alternate" type="application/rss+xml" title="The Repository of Notes" href="/feed.xml">
+    <link rel="sitemap" type="application/xml" href="/sitemap.xml">
+    <link rel="index" href="/bots.html" title="Article Index">
+
+    <script type="application/ld+json" id="jsonLd">
+    {
+      "@context": "https://schema.org",
+      "@type": "WebSite",
+      "name": "The Repository of Notes",
+      "url": "https://www.grik.net/"
+    }
+    </script>
+
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700&family=Poppins:wght@300;400;500;600&display=swap');
 
@@ -120,6 +147,14 @@
             position: relative;
             overflow: hidden;
             background-color: var(--frosted-base);
+        }
+
+        .card-link {
+            display: flex;
+            flex-direction: column;
+            flex: 1;
+            text-decoration: none;
+            color: inherit;
         }
 
         /* The 'Material' hover interaction: Shadow elevation + light reflection */
@@ -414,6 +449,22 @@
             background: var(--accent-gold);
         }
 
+        footer {
+            text-align: center;
+            padding: 20px 0 40px;
+        }
+
+        footer a {
+            font-size: 0.8rem;
+            color: var(--text-secondary);
+            opacity: 0.4;
+            text-decoration: none;
+        }
+
+        footer a:hover {
+            opacity: 0.8;
+        }
+
         @media (max-width: 768px) {
             header h1 { font-size: 2.8rem; }
             .pagination {
@@ -452,7 +503,7 @@
     <div class="container">
         <header>
             <h1>The repository of notes</h1>
-            <p>Digital craft, business, and complexity of convenince.</p>
+            <p>Digital craft, business, and the complexity of convenience.</p>
         </header>
 
         <main>
@@ -462,11 +513,15 @@
             <div class="pagination" id="pagination">
             </div>
         </main>
+
+        <footer>
+            <a href="/bots.html">Article index</a>
+        </footer>
     </div>
 
-    <div class="modal-overlay" id="articleModal">
+    <div class="modal-overlay" id="articleModal" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
         <div class="panel modal-content">
-            <button class="close-btn" id="closeModal">&times;</button>
+            <button class="close-btn" id="closeModal" aria-label="Close article">&times;</button>
             <div class="modal-body" id="modalBody">
                 </div>
         </div>
@@ -934,16 +989,80 @@
             return Promise.all(entries.map((entry) => loadArticle(entry)));
         }
 
+        const META_DEFAULTS = {
+            title: "The Repository of Notes",
+            description: "Digital craft, business, and the complexity of convenience — a repository of notes by Andrey Grikevich.",
+            url: "https://www.grik.net/",
+        };
+
+        function updateMetaTags({ title, description, url }) {
+            document.title = title;
+            document.querySelector('meta[name="description"]').setAttribute("content", description);
+            document.getElementById("canonicalUrl").setAttribute("href", url);
+            document.getElementById("ogTitle").setAttribute("content", title);
+            document.getElementById("ogDescription").setAttribute("content", description);
+            document.getElementById("ogUrl").setAttribute("content", url);
+            document.getElementById("twitterTitle").setAttribute("content", title);
+            document.getElementById("twitterDescription").setAttribute("content", description);
+        }
+
+        function setAlternateMarkdownLink(key) {
+            const existing = document.getElementById("alternateMarkdown");
+            if (existing) existing.remove();
+            if (key) {
+                const link = document.createElement("link");
+                link.id = "alternateMarkdown";
+                link.rel = "alternate";
+                link.type = "text/markdown";
+                link.href = "/" + key;
+                document.head.appendChild(link);
+            }
+        }
+
+        function updateJsonLd(article) {
+            const el = document.getElementById("jsonLd");
+            if (article) {
+                el.textContent = JSON.stringify({
+                    "@context": "https://schema.org",
+                    "@type": "Article",
+                    "headline": article.title,
+                    "url": "https://www.grik.net/?" + encodeURIComponent(articleTokenFromKey(article.key)),
+                    "datePublished": article.lastModified || "",
+                    "publisher": {
+                        "@type": "Person",
+                        "name": "Andrey Grikevich",
+                        "url": "https://www.grik.net/"
+                    }
+                });
+            } else {
+                el.textContent = JSON.stringify({
+                    "@context": "https://schema.org",
+                    "@type": "WebSite",
+                    "name": "The Repository of Notes",
+                    "url": "https://www.grik.net/"
+                });
+            }
+        }
+
         function openModal(article, options = {}) {
             const bodyWithoutTopTitle = stripLeadingMarkdownTitle(article.markdown);
             modalBody.innerHTML = `
-                <h1 class="article-modal-title">${article.title}</h1>
+                <h1 class="article-modal-title" id="modalTitle">${article.title}</h1>
                 <div class="meta">PUBLISHED ${article.date.toUpperCase()}</div>
                 ${renderMarkdownToHtml(bodyWithoutTopTitle)}
             `;
             modal.classList.add("active");
             document.body.style.overflow = "hidden";
             currentArticleKey = article.key;
+
+            const articleUrl = "https://www.grik.net/?" + encodeURIComponent(articleTokenFromKey(article.key));
+            updateMetaTags({ title: article.title, description: article.excerpt || META_DEFAULTS.description, url: articleUrl });
+            setAlternateMarkdownLink(article.key);
+            updateJsonLd(article);
+
+            // move focus to modal for accessibility
+            const closeBtn = document.getElementById("closeModal");
+            if (closeBtn) closeBtn.focus();
 
             if (options.syncUrl !== false && !isHydratingFromUrl) {
                 writeUrlState(
@@ -958,6 +1077,10 @@
             document.body.style.overflow = "auto";
             currentArticleKey = "";
 
+            updateMetaTags(META_DEFAULTS);
+            setAlternateMarkdownLink(null);
+            updateJsonLd(null);
+
             const syncUrl = options.syncUrl !== false;
             const historyMode = options.historyMode || "push";
             if (syncUrl && !isHydratingFromUrl) {
@@ -971,17 +1094,32 @@
             for (const article of articles) {
                 const card = document.createElement("article");
                 card.className = `panel article-card${article.failed ? " is-unavailable" : ""}`;
-                card.innerHTML = `
-                    <div>
-                        <div class="article-date">${article.date}</div>
-                        <h3 class="article-title">${article.title}</h3>
-                        <p class="article-excerpt">${article.excerpt}</p>
-                    </div>
-                    <div><span class="read-insight">${article.failed ? "UNAVAILABLE" : "READ INSIGHT →"}</span></div>
-                `;
-
-                if (!article.failed) {
-                    card.addEventListener("click", () => openModal(article, { syncUrl: true, historyMode: "push" }));
+                if (article.failed) {
+                    card.innerHTML = `
+                        <div>
+                            <div class="article-date">${article.date}</div>
+                            <h3 class="article-title">${article.title}</h3>
+                            <p class="article-excerpt">${article.excerpt}</p>
+                        </div>
+                        <div><span class="read-insight">UNAVAILABLE</span></div>
+                    `;
+                } else {
+                    const token = articleTokenFromKey(article.key);
+                    const href = "/?" + encodeURIComponent(token);
+                    card.innerHTML = `
+                        <a class="card-link" href="${href}">
+                            <div>
+                                <div class="article-date">${article.date}</div>
+                                <h3 class="article-title">${article.title}</h3>
+                                <p class="article-excerpt">${article.excerpt}</p>
+                            </div>
+                            <div><span class="read-insight">READ INSIGHT →</span></div>
+                        </a>
+                    `;
+                    card.addEventListener("click", (e) => {
+                        e.preventDefault();
+                        openModal(article, { syncUrl: true, historyMode: "push" });
+                    });
                 }
 
                 fragment.appendChild(card);
@@ -1342,7 +1480,25 @@
 
         closeModal.addEventListener("click", close);
         modal.addEventListener("click", (e) => { if (e.target === modal) close(); });
-        document.addEventListener("keydown", (e) => { if (e.key === "Escape" && modal.classList.contains("active")) close(); });
+        document.addEventListener("keydown", (e) => {
+            if (e.key === "Escape" && modal.classList.contains("active")) {
+                close();
+                return;
+            }
+            if (e.key === "Tab" && modal.classList.contains("active")) {
+                const focusable = Array.from(modal.querySelectorAll(
+                    'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+                )).filter(el => !el.disabled && el.offsetParent !== null);
+                if (focusable.length === 0) { e.preventDefault(); return; }
+                const first = focusable[0];
+                const last = focusable[focusable.length - 1];
+                if (e.shiftKey) {
+                    if (document.activeElement === first) { e.preventDefault(); last.focus(); }
+                } else {
+                    if (document.activeElement === last) { e.preventDefault(); first.focus(); }
+                }
+            }
+        });
 
         bootstrap();
     </script>

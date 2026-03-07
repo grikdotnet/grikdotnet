@@ -88,6 +88,7 @@ function isManagedFilename(name) {
     EXACT_FILES.has(name) ||
     lower.endsWith(".html") ||
     lower.endsWith(".md") ||
+    lower.endsWith(".xml") ||
     IMAGE_EXTENSIONS.some((ext) => lower.endsWith(ext))
   );
 }
