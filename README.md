@@ -1,10 +1,10 @@
 ### Hi there 👋
 
-Here are the links to articles, notes and projects of mine.
+This is the repo of the https://www.grik.net/ web site.
 
-* [What LLMs are not, a story for javascript developers.](https://gist.github.com/grikdotnet/474458f243e96e4cd876caacd25e6c48)
-* [Thoughts on Y Combinator Requests for Startups](https://www.grik.net/Thoughts%20on%20Y%20Combinator%20Requests%20for%20Startups)
+It is a blog site showing markdown files as pages with a simple single-page HTML page that works as a CMS: https://www.grik.net/?site-builder
 
-- 📫 How to reach me: 
+
+- 📫 How to contact me:
 	- email: public@grik.net
 	- telegram: https://t.me/grikdotnet

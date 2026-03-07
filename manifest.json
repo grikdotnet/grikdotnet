@@ -1,7 +1,13 @@
 {
-  "generatedAt": "2026-03-04T03:57:20.132Z",
-  "total": 5,
+  "generatedAt": "2026-03-06T03:53:32.860Z",
+  "total": 7,
   "files": [
+    {
+      "key": "Machines should work; People should think.md",
+      "size": 6081,
+      "lastModified": "2026-03-06T03:53:32.860Z",
+      "hash": "2266a4b74f1571dcc6eff76c289951d421fc81b43df082294af4f34ef906c698"
+    },
     {
       "key": "site-builder.md",
       "size": 2167,
@@ -13,6 +19,12 @@
       "size": 2186,
       "lastModified": "2026-02-08T02:51:40.687Z",
       "hash": "2be51d737ed3049dc2f6384c0e692361087b2d7345f3fa842e40e5396b5715c6"
+    },
+    {
+      "key": "What-LLMs-Are-Not.md",
+      "size": 7245,
+      "lastModified": "2024-10-02T02:21:05.603Z",
+      "hash": "2fa72315eec505f4e61848e88be59a12e4d2b247ce5c404a05a5c99e7fc9fd80"
     },
     {
       "key": "Thoughts on Y Combinator Requests for Startups.md",

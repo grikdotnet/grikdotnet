@@ -17,6 +17,12 @@ const __dirname = path.dirname(__filename);
 const ROOT_DIR = path.resolve(__dirname, "..");
 
 const EXACT_FILES = new Set(["favicon.svg", "favicon.ico"]);
+const IMAGE_EXTENSIONS = [".jpg", ".jpeg", ".png", ".webp", ".gif", ".avif", ".svg"];
+
+function isImageFilename(name) {
+  const lower = name.toLowerCase();
+  return IMAGE_EXTENSIONS.some((ext) => lower.endsWith(ext));
+}
 
 function loadDotEnv(content) {
   const lines = content.split(/\r?\n/);
@@ -77,7 +83,13 @@ function isManagedFilename(name) {
   if (lower === "readme.md") {
     return false;
   }
-  return name === "manifest.json" || EXACT_FILES.has(name) || lower.endsWith(".html") || lower.endsWith(".md");
+  return (
+    name === "manifest.json" ||
+    EXACT_FILES.has(name) ||
+    lower.endsWith(".html") ||
+    lower.endsWith(".md") ||
+    IMAGE_EXTENSIONS.some((ext) => lower.endsWith(ext))
+  );
 }
 
 function inferFromS3Url(urlString) {
@@ -160,6 +172,21 @@ function contentTypeFor(filename) {
   }
   if (lower.endsWith(".ico")) {
     return "image/x-icon";
+  }
+  if (lower.endsWith(".jpg") || lower.endsWith(".jpeg")) {
+    return "image/jpeg";
+  }
+  if (lower.endsWith(".png")) {
+    return "image/png";
+  }
+  if (lower.endsWith(".webp")) {
+    return "image/webp";
+  }
+  if (lower.endsWith(".gif")) {
+    return "image/gif";
+  }
+  if (lower.endsWith(".avif")) {
+    return "image/avif";
   }
   if (lower.endsWith(".md")) {
     return "text/markdown; charset=utf-8";
@@ -344,7 +371,7 @@ async function main() {
 
   const localFiles = await listLocalManagedFiles();
   if (localFiles.length === 0) {
-    throw new Error("No deployable files found (*.html, *.md, manifest.json, CNAME).");
+    throw new Error("No deployable files found (*.html, *.md, images, manifest.json).");
   }
 
   console.log(`Preparing upload to bucket '${bucket}' at ${endpoint}`);
@@ -364,7 +391,7 @@ async function main() {
   const remoteManifestHashes = manifestHashLookup(remoteManifest);
 
   for (const key of localFiles) {
-    if (EXACT_FILES.has(key)) {
+    if (EXACT_FILES.has(key) || isImageFilename(key)) {
       const existsRemotely = await remoteObjectExists(client, bucket, key);
       if (existsRemotely) {
         skippedCount += 1;
