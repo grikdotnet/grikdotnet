@@ -17,6 +17,7 @@ const __dirname = path.dirname(__filename);
 const ROOT_DIR = path.resolve(__dirname, "..");
 
 const EXACT_FILES = new Set(["favicon.svg", "favicon.ico"]);
+const LOCAL_EXCLUDED_FILENAMES = new Set(["claude.md"]);
 const IMAGE_EXTENSIONS = [".jpg", ".jpeg", ".png", ".webp", ".gif", ".avif", ".svg"];
 
 function isImageFilename(name) {
@@ -138,6 +139,9 @@ async function listLocalManagedFiles() {
       continue;
     }
     if (!isManagedFilename(entry.name)) {
+      continue;
+    }
+    if (LOCAL_EXCLUDED_FILENAMES.has(entry.name.toLowerCase())) {
       continue;
     }
     files.push(entry.name);
