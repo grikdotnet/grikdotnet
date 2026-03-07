@@ -639,7 +639,7 @@
             if (localFolderHandle) {
                 return readTextFromFolder(localFolderHandle, key);
             }
-            const response = await fetch(`./${encodeURI(key)}`, { cache: "no-store" });
+            const response = await fetch(`./${encodeURI(key)}`);
             if (!response.ok) {
                 throw new Error(`Failed to load markdown ${key}: ${response.status}`);
             }

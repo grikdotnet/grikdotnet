@@ -240,6 +240,26 @@ function buildApexRedirectRule({ apexDomain, wwwDomain }) {
   };
 }
 
+function buildCacheRule({ host }) {
+  return {
+    ref: "grik_cache_everything",
+    description: "grik bootstrap: cache R2 static assets at edge",
+    enabled: true,
+    expression: `(http.host eq "${host}")`,
+    action: "set_cache_settings",
+    action_parameters: {
+      cache: true,
+      edge_ttl: {
+        mode: "respect_origin",
+        default: 3600
+      },
+      browser_ttl: {
+        mode: "respect_origin"
+      }
+    }
+  };
+}
+
 function buildRootRewriteRule({ host }) {
   return {
     ref: "grik_root_to_index_rewrite",
@@ -300,6 +320,13 @@ async function main() {
     zoneId,
     phase: "http_request_transform",
     desiredRule: buildRootRewriteRule({ host: wwwDomain })
+  });
+
+  await upsertRule({
+    token,
+    zoneId,
+    phase: "http_request_cache_settings",
+    desiredRule: buildCacheRule({ host: wwwDomain })
   });
 
   console.log("Bootstrap completed.");

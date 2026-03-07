@@ -17,7 +17,7 @@ const __dirname = path.dirname(__filename);
 const ROOT_DIR = path.resolve(__dirname, "..");
 
 const EXACT_FILES = new Set(["favicon.svg", "favicon.ico"]);
-const LOCAL_EXCLUDED_FILENAMES = new Set(["claude.md"]);
+const LOCAL_EXCLUDED_FILENAMES = new Set(["claude.md", "readme.md", "agents.md"]);
 const IMAGE_EXTENSIONS = [".jpg", ".jpeg", ".png", ".webp", ".gif", ".avif", ".svg"];
 
 function isImageFilename(name) {
@@ -81,9 +81,6 @@ function requireValue(name, value) {
 
 function isManagedFilename(name) {
   const lower = name.toLowerCase();
-  if (lower === "readme.md") {
-    return false;
-  }
   return (
     name === "manifest.json" ||
     EXACT_FILES.has(name) ||
@@ -167,6 +164,23 @@ async function readLocalFileInfo(key) {
   };
 }
 
+function cacheControlFor(filename) {
+  const lower = filename.toLowerCase();
+  if (lower === "manifest.json") {
+    return "public, max-age=0, must-revalidate";
+  }
+  if (lower === "index.html") {
+    return "public, max-age=3600";
+  }
+  if (lower.endsWith(".md")) {
+    return "public, max-age=3600";
+  }
+  if (isImageFilename(lower) || EXACT_FILES.has(filename)) {
+    return "public, max-age=31536000, immutable";
+  }
+  return "public, max-age=3600";
+}
+
 function contentTypeFor(filename) {
   const lower = filename.toLowerCase();
   if (lower.endsWith(".html")) {
@@ -214,6 +228,7 @@ async function uploadFiles(client, bucket, files) {
         Key: file.key,
         Body: file.body,
         ContentType: contentTypeFor(file.key),
+        CacheControl: cacheControlFor(file.key),
         Metadata: {
           sha256: file.sha256
         }

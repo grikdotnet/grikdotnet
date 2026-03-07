@@ -105,7 +105,7 @@ function isMarkdownFile(name) {
 
 function isContentMarkdown(name) {
   const lowered = name.toLowerCase();
-  const excluded = new Set(["readme.md", "project_plan.md", "claude.md"]);
+  const excluded = new Set(["readme.md", "project_plan.md", "claude.md", "agents.md"]);
   return isMarkdownFile(name) && !excluded.has(lowered);
 }
 
